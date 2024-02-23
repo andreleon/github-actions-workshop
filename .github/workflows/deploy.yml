@@ -42,7 +42,7 @@ jobs:
 
       - name: Configure docker
         env:
-          AZURE_CREDENTIALS: <credentials>
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
         run: |
           CLIENT_ID=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientId')
           CLIENT_PASSWORD=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientSecret')
@@ -82,7 +82,7 @@ jobs:
       - name: Azure login
         uses: azure/login@v1
         with:
-          creds: <credentials>
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
       - name: Deploy to Azure App Service
         env:
           IMAGE_TAG: ${{ needs.build.outputs.image-tag }}

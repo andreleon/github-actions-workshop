@@ -2,6 +2,14 @@ name: Build and deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      message:
+        description: Custom message
+        required: true
+        type: string
+
+env:
+  IMAGE_NAME: react-app
 
 jobs:
   build:
@@ -25,12 +33,12 @@ jobs:
         working-directory: ./app
         env:
           IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
-        run: docker build . -t acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG
+        run: docker build . -t ${{ vars.AZURE_CONTAINER_REGISTRY }}/${{ vars.REPOSITORY_NAME }}/$IMAGE_NAME:$IMAGE_TAG
 
       - name: Azure login
         uses: azure/login@v1
         with:
-          creds: <credentials>
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Configure docker
         env:
@@ -38,15 +46,30 @@ jobs:
         run: |
           CLIENT_ID=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientId')
           CLIENT_PASSWORD=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientSecret')
-          docker login -u $CLIENT_ID --password-stdin acrah20240223.azurecr.io <<< $CLIENT_PASSWORD
+          docker login -u $CLIENT_ID --password-stdin ${{ vars.AZURE_CONTAINER_REGISTRY }} <<< $CLIENT_PASSWORD
 
       - name: Push image to Azure Container Registry
         env:
           IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
-        run: docker push acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG
+        run: docker push ${{ vars.AZURE_CONTAINER_REGISTRY }}/${{ vars.REPOSITORY_NAME }}/$IMAGE_NAME:$IMAGE_TAG
+
+      - name: Add a message
+        working-directory: ./app/src
+        env:
+          CUSTOM_MESSAGE: ${{ inputs.message }}
+        run: |
+          envsubst < App.js > App.js.tmp
+          rm App.js
+          mv App.js.tmp App.js
+
+    outputs:
+      image-tag: ${{ steps.commit.outputs.short-sha }}
   deploy:
     name: Deploy to Azure App Service
     runs-on: ubuntu-latest
+    needs: build
+    env:
+      SERVICE_NAME: the-best-react-service
     steps:
       - name: Check-out repo
         uses: actions/checkout@v4
@@ -62,19 +85,19 @@ jobs:
           creds: <credentials>
       - name: Deploy to Azure App Service
         env:
-          IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
+          IMAGE_TAG: ${{ needs.build.outputs.image-tag }}
         run: |
           az webapp create \
-            --resource-group github-workshop-ah-20240223 \
-            --plan asp-gh-ws-20240223 \
-            --name react-service \
-            --deployment-container-image-name acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --plan ${{ vars.AZURE_APP_SERVICE_PLAN }} \
+            --name $SERVICE_NAME \
+            --deployment-container-image-name ${{ vars.AZURE_CONTAINER_REGISTRY }}/${{ vars.REPOSITORY_NAME }}/$IMAGE_NAME:$IMAGE_TAG \
             --public-network-access Enabled \
             --only-show-errors
       - name: Get URL
         id: url
         run: |
-          hostName=$(az webapp list --query "[?repositorySiteName=='react-service'].defaultHostName | [0]" -o tsv)
+          hostName=$(az webapp list --query "[?repositorySiteName=='$SERVICE_NAME'].defaultHostName | [0]" -o tsv)
           url="https://$hostName"
           echo "url=$url" >> $GITHUB_OUTPUT
       - name: Add summary

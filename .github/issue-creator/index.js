@@ -15,6 +15,8 @@ async function run() {
       title: issueTitle,
       body: issueBody,
     });
+
+    console.log(newIssue);
   } catch (error) {
     core.setFailed(error.message);
   }

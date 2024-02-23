@@ -1,0 +1,84 @@
+name: Build and deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and push docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check-out repo
+        uses: actions/checkout@v4
+      - name: Build React app
+        working-directory: ./app
+        run: |
+          npm install
+          npm run build
+      - name: Get commit info
+        id: commit
+        uses: ./.github/git
+        with:
+          message-prefix: Commit info
+
+      - name: Build image
+        working-directory: ./app
+        env:
+          IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
+        run: docker build . -t acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: <credentials>
+
+      - name: Configure docker
+        env:
+          AZURE_CREDENTIALS: <credentials>
+        run: |
+          CLIENT_ID=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientId')
+          CLIENT_PASSWORD=$(echo $AZURE_CREDENTIALS | jq -e -r '.clientSecret')
+          docker login -u $CLIENT_ID --password-stdin acrah20240223.azurecr.io <<< $CLIENT_PASSWORD
+
+      - name: Push image to Azure Container Registry
+        env:
+          IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
+        run: docker push acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG
+  deploy:
+    name: Deploy to Azure App Service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check-out repo
+        uses: actions/checkout@v4
+
+      - name: Get commit info
+        id: commit
+        uses: ./.github/git
+        with:
+          message-prefix: Commit info
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: <credentials>
+      - name: Deploy to Azure App Service
+        env:
+          IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
+        run: |
+          az webapp create \
+            --resource-group github-workshop-ah-20240223 \
+            --plan asp-gh-ws-20240223 \
+            --name react-service \
+            --deployment-container-image-name acrah20240223.azurecr.io/workshop/react-app:$IMAGE_TAG \
+            --public-network-access Enabled \
+            --only-show-errors
+      - name: Get URL
+        id: url
+        run: |
+          hostName=$(az webapp list --query "[?repositorySiteName=='react-service'].defaultHostName | [0]" -o tsv)
+          url="https://$hostName"
+          echo "url=$url" >> $GITHUB_OUTPUT
+      - name: Add summary
+        env:
+          SERVICE_URL: ${{ steps.url.outputs.url }}
+        run: |
+          echo "The image is deployed to serve on [URL]($SERVICE_URL)" >> $GITHUB_STEP_SUMMARY

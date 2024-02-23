@@ -18,6 +18,14 @@ jobs:
     steps:
       - name: Check-out repo
         uses: actions/checkout@v4
+      - name: Add a message
+        working-directory: ./app/src
+        env:
+          CUSTOM_MESSAGE: ${{ inputs.message }}
+        run: |
+          envsubst < App.js > App.js.tmp
+          rm App.js
+          mv App.js.tmp App.js
       - name: Build React app
         working-directory: ./app
         run: |
@@ -52,15 +60,6 @@ jobs:
         env:
           IMAGE_TAG: ${{ steps.commit.outputs.short-sha }}
         run: docker push ${{ vars.AZURE_CONTAINER_REGISTRY }}/${{ vars.REPOSITORY_NAME }}/$IMAGE_NAME:$IMAGE_TAG
-
-      - name: Add a message
-        working-directory: ./app/src
-        env:
-          CUSTOM_MESSAGE: ${{ inputs.message }}
-        run: |
-          envsubst < App.js > App.js.tmp
-          rm App.js
-          mv App.js.tmp App.js
 
     outputs:
       image-tag: ${{ steps.commit.outputs.short-sha }}
